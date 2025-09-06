@@ -56,6 +56,26 @@ const HOTKEY_CANDIDATES = [
 
 let ACTIVE_HOTKEY: string | null = null
 
+function mapToServer(urlStr: string, serverUrl: string | null): string | null {
+    if (!serverUrl) return null;
+    try {
+        const base = new URL(serverUrl);
+        const target = new URL(urlStr, serverUrl);
+
+        const isLegacy =
+            (target.hostname === 'localhost' || target.hostname === '127.0.0.1') &&
+            target.port === '8080';
+
+        // Nur mappen, wenn Legacy und nicht schon auf base.host
+        if (!isLegacy || target.host === base.host) return null;
+
+        target.hostname = base.hostname;
+        target.port = base.port;
+        return target.toString();
+    } catch {
+        return null;
+    }
+}
 function registerHotkeysRobust() {
     // Vorher alles wegräumen
     globalShortcut.unregisterAll();
@@ -96,7 +116,7 @@ let SERVER_URL: string | null = null;
 let SERVER_STATUS: string | null = null;
 let SERVER_REACHABLE = false;
 let SERVER_PID: number | null = null;
-
+let FIRST_RUN = false;
 function createWindow(show = true): void {
     // Create the browser window.
     mainWindow = new BrowserWindow({
@@ -119,9 +139,76 @@ function createWindow(show = true): void {
         webPreferences: {
             preload: join(__dirname, "../preload/index.js"),
             sandbox: false,
+            contextIsolation: false
         },
     });
+    mainWindow.webContents.on("dom-ready", () => {
+        mainWindow!.webContents.executeJavaScript(`
+    (function () {
+      // nur installieren, wenn noch kein echter Store vorhanden ist
+      const needsShim =
+        !window.appData ||
+        typeof window.appData.subscribe !== 'function' ||
+        typeof window.appData.set !== 'function';
+
+      if (!needsShim) return;
+
+      console.warn('[shim] installing appData Svelte-like store');
+
+      let _value = {};
+      const _subs = new Set();
+
+      window.appData = {
+        // Svelte-Store API
+        subscribe(fn) {
+          _subs.add(fn);
+          try { fn(_value); } catch {}
+          return () => _subs.delete(fn);
+        },
+        set(v) {
+          _value = v;
+          _subs.forEach(fn => { try { fn(_value); } catch {} });
+        },
+        update(fn) {
+          try { _value = fn(_value); } catch {}
+          _subs.forEach(fn => { try { fn(_value); } catch {} });
+        },
+        // optional: bequemes Auslesen
+        get() { return _value; }
+      };
+
+      // Optional: initial mit Backend-Daten befüllen
+      fetch('/api/app/config')
+        .then(r => r.ok ? r.json() : null)
+        .then(cfg => { if (cfg) window.appData.set(cfg); })
+        .catch(() => {});
+    })();
+  `).catch(() => { });
+    });
+
+      
     mainWindow.setIcon(icon);
+    // Debug-Logs für Navigation
+    mainWindow.webContents.on('did-start-loading', () => {
+        console.log('[web] did-start-loading ->', mainWindow!.webContents.getURL());
+    });
+    mainWindow.webContents.on('did-navigate', (_e, url) => {
+        console.log('[web] did-navigate ->', url);
+    });
+    mainWindow.webContents.on('did-finish-load', () => {
+        console.log('[web] did-finish-load ->', mainWindow!.webContents.getURL());
+    });
+    mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
+        console.log('[web] did-fail-load', code, desc, 'url=', url);
+    });
+
+    mainWindow.webContents.on('will-redirect', (_e, url) => {
+            console.log('[web] will-redirect ->', url);
+    });
+    mainWindow.webContents.on('did-redirect-navigation', (_e, url) => {
+            console.log('[web] did-redirect-navigation ->', url);
+    });
+  
     // Enables navigator.mediaDevices.getUserMedia API. See https://www.electronjs.org/docs/latest/api/desktop-capturer
     session.defaultSession.setDisplayMediaRequestHandler(
         (request, callback) => {
@@ -139,27 +226,65 @@ function createWindow(show = true): void {
         mainWindow.webContents.openDevTools();
     }
 
-    if (show) {
-        mainWindow.on("ready-to-show", () => {
-            mainWindow?.show();
-        });
-    }
-
-    mainWindow.webContents.setWindowOpenHandler((details) => {
-        openUrl(details.url);
-        return { action: "deny" };
+    mainWindow.on('ready-to-show', () => {
+           if (show) mainWindow!.show();
     });
 
-    globalShortcut.register("Alt+CommandOrControl+O", () => {
-        if (SERVER_URL) {
-            openUrl(SERVER_URL);
-        } else {
-            mainWindow?.show();
 
-            if (mainWindow?.isMinimized()) mainWindow?.restore();
-            mainWindow?.focus();
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        // 8080 -> aktive SERVER_URL mappen (z. B. 8084)
+        const mapped = mapToServer(url, SERVER_URL);
+        if (mapped) {
+            console.log('[web] window.open legacy -> mapped to', mapped);
+            mainWindow!.loadURL(mapped);
+            return { action: 'deny' };
         }
+
+        try {
+            const base = new URL(SERVER_URL ?? '');
+            const target = new URL(url, SERVER_URL ?? undefined);
+
+            // Gleiche Origin -> im selben Fenster navigieren
+            if (target.origin === base.origin) {
+                console.log('[web] window.open same-origin ->', target.href);
+                mainWindow!.loadURL(target.href);
+                return { action: 'deny' };
+            }
+        } catch { }
+
+        // Andere Origins -> extern
+        console.log('[web] external open ->', url);
+        shell.openExternal(url);
+        return { action: 'deny' };
     });
+
+
+
+    mainWindow.webContents.on('will-navigate', (e, url) => {
+        const mapped = mapToServer(url, SERVER_URL);
+        if (mapped) {
+            console.log('[web] will-navigate legacy ->', url, '→', mapped);
+            e.preventDefault();
+            mainWindow!.loadURL(mapped);
+            return;
+        }
+
+        try {
+            const base = new URL(SERVER_URL ?? '');
+            const target = new URL(url);
+            if (target.origin === base.origin) {
+                console.log('[web] will-navigate same-origin ->', url);
+                return; // erlauben
+            }
+        } catch { }
+
+        console.log('[web] will-navigate external ->', url, ' (openExternal & preventDefault)');
+        e.preventDefault();
+        shell.openExternal(url);
+    });
+
+;
+
 
     const defaultMenu = Menu.getApplicationMenu();
     let menuTemplate = defaultMenu ? defaultMenu.items.map((item) => item) : [];
@@ -212,13 +337,7 @@ function createWindow(show = true): void {
     tray.setToolTip("Open WebUI");
     tray.setContextMenu(trayMenu);
 
-    // HMR for renderer base on electron-vite cli.
-    // Load the remote URL for development or the local html file for production.
-    if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-        mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-    } else {
-        mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
-    }
+
 
     // Handle the close event
     mainWindow.on("close", (event) => {
@@ -311,75 +430,75 @@ const uninstallHandler = async () => {
 const startServerHandler = async () => {
     await stopServerHandler();
     SERVER_STATUS = "starting";
-    mainWindow?.webContents.send("main:data", {
-        type: "status:server",
-        data: SERVER_STATUS,
-    });
+    mainWindow?.webContents.send("main:data", { type: "status:server", data: SERVER_STATUS });
 
     try {
         CONFIG = await getConfig();
+
 
         ({ url: SERVER_URL, pid: SERVER_PID } = await startServer(
             CONFIG?.serveOnLocalNetwork ?? false,
             CONFIG?.port ?? null
         ));
 
-        updateTrayMenu("Open WebUI: Starting...", null);
+        
+        if (SERVER_URL?.includes('127.0.0.1')) {
+            SERVER_URL = SERVER_URL.replace('127.0.0.1', 'localhost');
+        }
 
+
+        updateTrayMenu("Open WebUI: Starting...", null);
         log.info("Server started successfully:", SERVER_URL, SERVER_PID);
         SERVER_STATUS = "started";
+        mainWindow?.webContents.send("main:data", { type: "status:server", data: SERVER_STATUS });
 
-        mainWindow?.webContents.send("main:data", {
-            type: "status:server",
-            data: SERVER_STATUS,
-        });
+        // --- Server erreichbar? (Warten, dann Electron-Fenster laden) ---
+        async function waitForServer(url: string, attempts = 1800, intervalMs = 100) {
+            if (url.startsWith("http://0.0.0.0")) {
+                url = url.replace("http://0.0.0.0", "http://localhost");
+                SERVER_URL = url;
+            }
+            for (let i = 0; i < attempts; i++) {
+                try {
+                    const res = await fetch(url, { method: "GET", cache: "no-store" });
+                    if (res.ok) return;
+                } catch { }
+                await new Promise(r => setTimeout(r, intervalMs));
+            }
+            throw new Error("Server wurde nicht erreichbar (Timeout).");
+        }
 
-        // // Load the server URL in the main window
-        // if (SERVER_URL.startsWith("http://0.0.0.0")) {
-        //     SERVER_URL = SERVER_URL.replace(
-        //         "http://0.0.0.0",
-        //         "http://localhost"
-        //     );
-        // }
-        // mainWindow.loadURL(SERVER_URL);
+        await waitForServer(SERVER_URL!);
+        SERVER_REACHABLE = true;
 
-        const urlObj = new URL(SERVER_URL);
-        const port = urlObj.port || "8080"; // Fallback to port 8080 if not provided
+        // 💡 Nur Status im Tray, kein Browser-Click
+        updateTrayMenu(`Open WebUI: ${SERVER_URL}`, null);
 
-        checkUrlAndOpen(SERVER_URL, async () => {
-            SERVER_REACHABLE = true;
+        if (!mainWindow) createWindow(false);
 
-            // Show system notification
-            const notification = new Notification({
-                title: "Open WebUI",
-                body: "Open WebUI is now available and opened in your browser",
-            });
-            notification.show();
+        // ✅ Chat-Seite in Electron laden
+        // (falls die Chatroute z.B. "/" ist, einfach SERVER_URL nehmen;
+        // falls deine Chat-Route anders ist, z.B. "/chat", dann `${SERVER_URL}/chat`)
+        await mainWindow!.loadURL(SERVER_URL!);
 
-            updateTrayMenu(`Open WebUI: ${SERVER_URL}`, SERVER_URL); // Update tray menu with running status
-            mainWindow?.webContents.send("main:data", {
-                type: "server",
-            });
-        });
+        if (mainWindow!.isMinimized()) mainWindow!.restore();
+        mainWindow!.maximize();
+        mainWindow!.show();
+        mainWindow!.focus();
 
-        return true; // Indicate success
+        new Notification({ title: "Open WebUI", body: "Open WebUI ist bereit." }).show();
+        mainWindow?.webContents.send("main:data", { type: "server" });
+        return true;
     } catch (error) {
         log.error("Failed to start server:", error);
         SERVER_STATUS = "failed";
-        mainWindow?.webContents.send("main:data", {
-            type: "status:server",
-            data: SERVER_STATUS,
-        });
-
-        mainWindow?.webContents.send(
-            "main:log",
-            `Failed to start server: ${error}`
-        );
-        updateTrayMenu("Open WebUI: Failed to Start", null); // Update tray menu with failure status
-
-        return false; // Indicate failure
+        mainWindow?.webContents.send("main:data", { type: "status:server", data: SERVER_STATUS });
+        mainWindow?.webContents.send("main:log", `Failed to start server: ${error}`);
+        updateTrayMenu("Open WebUI: Failed to Start", null);
+        return false;
     }
 };
+
 
 const stopServerHandler = async () => {
     try {
@@ -465,8 +584,46 @@ if (!gotTheLock) {
         }, 5000); */
         console.log('[boot] app.whenReady entered')
         CONFIG = await getConfig(); // Load initial config
+        FIRST_RUN = CONFIG?.firstRun !== false;           
+        await setConfig({ ...CONFIG, firstRun: false }); 
+
         log.info("Initial Config:", CONFIG);
 
+     session.defaultSession.webRequest.onBeforeRequest(
+           { urls: ['*://*/*'] }, // breit fassen, wir filtern selbst
+           (details, callback) => {
+                try {
+                    if (!SERVER_URL) return callback({});
+
+                    const base = new URL(SERVER_URL); // z.B. http://localhost:8081
+                    const req = new URL(details.url);
+
+                    // Nur Legacy-Ziel (8080) anfassen
+                    const isLegacy =
+                        (req.hostname === 'localhost' || req.hostname === '127.0.0.1') &&
+                        req.port === '8080';
+
+                    if (!isLegacy) return callback({});
+
+                    // Schon auf dem gewünschten Host/Port? -> NICHT redirecten (Loop-Schutz)
+                    if (req.host === base.host) return callback({});
+
+                    // Host + Port gezielt umbiegen, Pfad/Query/Hash bleiben erhalten
+                    req.hostname = base.hostname;
+                    req.port = base.port;
+
+                    const redirectURL = req.toString();
+                    console.log('[webreq] map', details.url, '→', redirectURL, '| base=', base.href);
+                    return callback({ redirectURL });
+                } catch (err) {
+                    console.warn('[webreq] error', err);
+                    return callback({});
+                }
+            }
+        );
+        
+        
+       
         // Set app user model id for windows
         electronApp.setAppUserModelId("com.openwebui.desktop");
 
@@ -662,29 +819,34 @@ if (!gotTheLock) {
             })
         }
 
-
+        ipcMain.handle("renderer:data", async (_event, payload) => {
+            log.info("[ipc] renderer:data", payload);
+            return { ok: true }; // no-op Antwort
+        });
 
         (async () => {
             if (isPackageInstalled("open-webui")) {
                 if (CONFIG?.autoUpdate ?? true) {
                     try {
                         log.info("Checking for updates...");
-                        updateTrayMenu(
-                            "Open WebUI: Checking for updates...",
-                            null
-                        );
+                        updateTrayMenu("Open WebUI: Checking for updates...", null);
                         await installPackage("open-webui");
                     } catch (error) {
                         log.error("Failed to update package:", error);
                     }
                 }
 
-                startServerHandler();
-                createWindow(false);
+                // ❌ Entfernen:
+                // createWindow(false);
+
+                // ✅ Nur das:
+                await startServerHandler();
             } else {
                 createWindow();
             }
         })();
+
+
 
         app.on("activate", function () {
             // On macOS it's common to re-create a window in the app when the
