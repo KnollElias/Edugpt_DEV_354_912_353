@@ -21,7 +21,8 @@ import {
     waitForNewClipboardImage,
     getClipboardImageHash,
     saveImage,
-    handleHotkey
+    handleHotkey,
+    registerMainWindowGetter,
 } from './printscreen'
 
 import {
@@ -142,6 +143,10 @@ function createWindow(show = true): void {
             contextIsolation: false
         },
     });
+
+    registerMainWindowGetter(() => mainWindow)
+
+    
     mainWindow.webContents.on("dom-ready", () => {
         mainWindow!.webContents.executeJavaScript(`
     (function () {
@@ -223,7 +228,7 @@ function createWindow(show = true): void {
     );
 
     if (!app.isPackaged) {
-        mainWindow.webContents.openDevTools();
+        //mainWindow.webContents.openDevTools();
     }
 
     mainWindow.on('ready-to-show', () => {
