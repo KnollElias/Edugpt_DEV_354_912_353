@@ -1,53 +1,263 @@
 // @ts-nocheck
 
 import {
-    app,
-    shell,
-    session,
-    clipboard,
-    nativeImage,
-    desktopCapturer,
-    BrowserWindow,
-    globalShortcut,
-    Notification,
-    Menu,
-    ipcMain,
-    Tray,
+    app, shell, session, clipboard, nativeImage, desktopCapturer,
+    BrowserWindow, globalShortcut, Notification, Menu, ipcMain, Tray
 } from "electron";
-import path, { join } from "path";
+
+import * as path from "node:path";
+import { spawn, spawnSync, ChildProcess } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as http from "node:http";
+
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
-import {
-    openSnippingTool,
-    waitForNewClipboardImage,
-    getClipboardImageHash,
-    saveImage,
-    handleHotkey,
-    registerMainWindowGetter,
-} from './printscreen'
 
 import {
-    getLogFilePath,
-    checkUrlAndOpen,
-    getConfig,
-    getServerLog,
-    installPackage,
-    installPython,
-    isPackageInstalled,
-    isPythonInstalled,
-    isUvInstalled,
-    openUrl,
-    resetApp,
-    setConfig,
-    startServer,
-    stopAllServers,
-    uninstallPython,
+    openSnippingTool, waitForNewClipboardImage, getClipboardImageHash,
+    saveImage, handleHotkey, registerMainWindowGetter
+} from "./printscreen";
+
+import {
+    getLogFilePath, checkUrlAndOpen, getConfig, getServerLog,
+    installPackage, installPython, isPackageInstalled, isPythonInstalled,
+    isUvInstalled, openUrl, resetApp, setConfig, startServer,
+    stopAllServers, uninstallPython,
 } from "./utils";
 
 import log from "electron-log";
 log.transports.file.resolvePathFn = () => getLogFilePath("main");
 
-import icon from "../../resources/icon.png?asset";
+import appIconPng from "../../resources/icon.png?asset";
+import appIconIco from "../../resources/assets/icon.ico?asset";
 import trayIconImage from "../../resources/assets/tray.png?asset";
+import * as crypto from "node:crypto";
+import * as net from "node:net";
+const fsp = fs.promises;
+
+// Windows nutzt .ico, andere Plattformen das PNG
+// Windows nutzt .ico, andere Plattformen das PNG
+const appIcon = process.platform === "win32" ? appIconIco : appIconPng;
+
+// App-/Runtime-/Assets-Pfade
+const APPDIR = path.join(app.getPath("appData"), "open-webui-desktop");
+const RUNTIMEDIR = path.join(APPDIR, "runtime");
+const VENV = path.join(RUNTIMEDIR, "venv");
+const VPY = path.join(VENV, "Scripts", "python.exe");
+
+// Im Build: resources/, im Dev: build/
+const RES = app.isPackaged ? process.resourcesPath : path.join(process.cwd(), "build");
+const PY_DIST = path.join(RES, "python", "python.exe");
+const WHEELHOUSE = path.join(RES, "wheelhouse");
+const HOST = "127.0.0.1";
+const DEFAULT_PORT = 8081; // dein Wunschport (8080 wird via Mapper auf diesen Port umgebogen)
+const backendLog = getLogFilePath("backend");
+
+let BACKEND_PROC: ChildProcess | null = null;
+
+
+
+function ensureDir(p: string) { if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true }); }
+
+function run(cmd: string, args: string[], env: NodeJS.ProcessEnv = {}) {
+    return new Promise<void>((resolve, reject) => {
+        const child = spawn(cmd, args, {
+            env: { ...process.env, PYTHONUTF8: "1", ...env },
+            stdio: "inherit",
+            windowsHide: true,
+        });
+        child.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`)));
+        child.on("error", reject);
+    });
+}
+
+async function findFreePort(start: number): Promise<number> {
+    function tryPort(p: number) {
+        return new Promise<boolean>((resolve) => {
+            const srv = net.createServer();
+            srv.once("error", () => resolve(false));
+            srv.once("listening", () => {
+                srv.close(() => resolve(true));
+            });
+            srv.listen(p, "127.0.0.1");
+        });
+    }
+
+    let p = start;
+    for (let i = 0; i < 20; i++, p++) {
+        if (await tryPort(p)) return p;
+    }
+    throw new Error("Kein freier Port gefunden.");
+}
+
+
+async function offlineBootstrap() {
+    ensureDir(RUNTIMEDIR);
+
+    // 1) venv anlegen (falls nicht vorhanden)
+    if (!fs.existsSync(VPY)) {
+        if (!fs.existsSync(PY_DIST)) {
+            throw new Error(`Embedded Python nicht gefunden: ${PY_DIST}`);
+        }
+        // venv erstellen
+        await run(PY_DIST, ["-m", "venv", VENV]);
+    }
+
+    // 2) pip/setuptools/wheel (online – robust; wenn offline nötig, weglassen)
+    try {
+        await run(VPY, ["-m", "pip", "install", "-U", "pip", "setuptools", "wheel"]);
+    } catch {
+        // kein Beinbruch, geht auch mit bestehender pip-Version weiter
+    }
+
+    // 3) itsdangerous offline (aus resources/wheelhouse), wenn vorhanden
+    if (fs.existsSync(WHEELHOUSE)) {
+        try {
+            await run(VPY, [
+                "-m",
+                "pip",
+                "install",
+                "--no-index",
+                `--find-links=${WHEELHOUSE}`,
+                "itsdangerous==2.2.0",
+            ]);
+        } catch (e) {
+            console.warn("[bootstrap] itsdangerous offline-Install schlug fehl, fahre fort…", e);
+        }
+    }
+
+    // 4) Open WebUI: nur installieren, wenn noch nicht vorhanden
+    let needInstall = true;
+    try {
+        await run(VPY, ["-c", "import open_webui; print(open_webui.__version__)"]);
+        needInstall = false;
+    } catch {
+        needInstall = true;
+    }
+
+    if (needInstall) {
+        // Online-Install (bewährt). Wenn du hierfür auch offline willst,
+        // musst du alle benötigten Wheels vorab in wheelhouse legen.
+        await run(VPY, ["-m", "pip", "install", "open-webui==0.6.30"]);
+    }
+}
+
+
+function waitForHttp(url: string, timeoutMs = 30000) {
+    const start = Date.now();
+    return new Promise<void>((resolve, reject) => {
+        const tick = () => {
+            const req = http.get(url, res => {
+                // alles >=200 <500 werten wir als "Server lebt"
+                const ok = (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 500;
+                res.resume();
+                ok ? resolve() : setTimeout(next, 500);
+            });
+            req.on("error", next);
+            function next() {
+                if (Date.now() - start > timeoutMs) reject(new Error("Server timeout"));
+                else setTimeout(tick, 500);
+            }
+        };
+        tick();
+    });
+}
+
+
+async function bootBackendReturnUrl(): Promise<string> {
+    await offlineBootstrap();
+
+    // Secret sicherstellen
+    const { secret } = await ensureSecret();
+
+    // Port aus Config oder Default, dann freien Port suchen
+    CONFIG = CONFIG ?? (await getConfig());
+    const preferred = (CONFIG?.port && Number(CONFIG.port)) || DEFAULT_PORT;
+    const PORT = await findFreePort(preferred);
+
+    const OPEN_WEBUI_EXE = path.join(VENV, "Scripts", "open-webui.exe");
+
+    // Arbeitsverzeichnisse
+    const DATA_DIR = path.join(APPDIR, "data");
+    ensureDir(APPDIR);
+    ensureDir(DATA_DIR);
+
+    // WICHTIG: kein --data-dir verwenden (nicht unterstützt)
+    const args = ["serve", "--host", HOST, "--port", String(PORT)];
+
+    // Falls bereits läuft, nicht doppelt starten
+    if (BACKEND_PROC && !BACKEND_PROC.killed) {
+        await waitForHttp(`http://${HOST}:${PORT}`, 60000);
+        return `http://${HOST}:${PORT}`;
+    }
+
+    const env = {
+        ...process.env,
+        PYTHONUTF8: "1",
+        PYTHONIOENCODING: "utf-8",
+        WEBUI_SECRET_KEY: secret,
+        UVICORN_LOG_LEVEL: "debug",
+        LOG_LEVEL: "DEBUG",
+        // optional: eigene Variablen – Open WebUI liest sie zwar nicht,
+        // aber sie stören auch nicht:
+        DATA_DIR,
+        HF_HUB_DISABLE_TELEMETRY: "1",
+    };
+
+    // Backend starten und stdout/stderr in Logfile schreiben
+    const out = fs.createWriteStream(backendLog, { flags: "a" });
+    BACKEND_PROC = spawn(OPEN_WEBUI_EXE, args, {
+        cwd: APPDIR,            // hier landen DB/Files, NICHT System32
+        env,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: false,
+    });
+
+    BACKEND_PROC.stdout!.pipe(out);
+    BACKEND_PROC.stderr!.pipe(out);
+
+    SERVER_PID = BACKEND_PROC.pid ?? null;
+
+    BACKEND_PROC.on("exit", (code) => {
+        console.log(`[backend] exited with code ${code}`);
+        BACKEND_PROC = null;
+        SERVER_PID = null;
+    });
+    BACKEND_PROC.on("error", (err) => {
+        console.error("[backend] error:", err);
+    });
+
+    app.once("before-quit", () => {
+        try { BACKEND_PROC?.kill(); } catch { }
+    });
+
+    // Warten bis HTTP erreichbar
+    await waitForHttp(`http://${HOST}:${PORT}`, 300000);
+    return `http://${HOST}:${PORT}`;
+}
+
+
+
+async function ensureSecret(): Promise<{ secret: string; keyFile: string }> {
+    // Lege die Secret-Datei ins AppData-Verzeichnis deiner App
+    const keyFile = path.join(APPDIR, ".webui_secret_key");
+
+    try {
+        const s = await fsp.readFile(keyFile, "utf8");
+        if (s && s.trim()) return { secret: s.trim(), keyFile };
+    } catch { /* file not found ist ok */ }
+
+    const secret = crypto.randomBytes(24).toString("base64");
+    await fsp.mkdir(APPDIR, { recursive: true });
+    await fsp.writeFile(keyFile, secret, "utf8");
+    return { secret, keyFile };
+}
+
+
+
+
+
 
 console.log('[boot] main starting')
 const HOTKEY_CANDIDATES = [
@@ -112,7 +322,15 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuiting = false; // Flag to track if the app is quitting
 
-let CONFIG: object | null = null;
+type AppConfig = {
+    serveOnLocalNetwork?: boolean;
+    port?: number | null;
+    firstRun?: boolean;
+    autoUpdate?: boolean;
+    hotkey?: string;
+};
+
+let CONFIG: AppConfig | null = null;
 let SERVER_URL: string | null = null;
 let SERVER_STATUS: string | null = null;
 let SERVER_REACHABLE = false;
@@ -125,7 +343,7 @@ function createWindow(show = true): void {
         height: 500,
         minWidth: 400,
         minHeight: 400,
-        icon: path.join(__dirname, "assets/icon.png"),
+        icon: appIcon,
         show: false,
         titleBarStyle: process.platform === "win32" ? "default" : "hidden",
         trafficLightPosition: { x: 16, y: 16 },
@@ -135,10 +353,10 @@ function createWindow(show = true): void {
                   frame: true,
               }
             : {}),
-        ...(process.platform === "linux" ? { icon } : {}),
+        ...(process.platform === "linux" ? { icon: appIcon } : {}),
         ...(process.platform !== "darwin" ? { titleBarOverlay: true } : {}),
         webPreferences: {
-            preload: join(__dirname, "../preload/index.js"),
+            preload: path.join(__dirname, "../preload/index.js"),
             sandbox: false,
             contextIsolation: false
         },
@@ -192,7 +410,7 @@ function createWindow(show = true): void {
     });
 
       
-    mainWindow.setIcon(icon);
+    mainWindow.setIcon(appIcon as any);
     // Debug-Logs für Navigation
     mainWindow.webContents.on('did-start-loading', () => {
         console.log('[web] did-start-loading ->', mainWindow!.webContents.getURL());
@@ -288,7 +506,7 @@ function createWindow(show = true): void {
         shell.openExternal(url);
     });
 
-;
+
 
 
     const defaultMenu = Menu.getApplicationMenu();
@@ -507,27 +725,34 @@ const startServerHandler = async () => {
 
 const stopServerHandler = async () => {
     try {
-        await stopAllServers();
+        if (BACKEND_PROC && !BACKEND_PROC.killed) {
+            BACKEND_PROC.kill();
+            // kurze Gnadenfrist
+            await new Promise((r) => setTimeout(r, 400));
+        }
+
+        BACKEND_PROC = null;
+        SERVER_PID = null;
 
         if (SERVER_STATUS) {
-            // Only when the server was started
             SERVER_STATUS = "stopped";
-            updateTrayMenu("Open WebUI: Stopped", null); // Update tray menu with stopped status
+            updateTrayMenu("Open WebUI: Stopped", null);
         }
         SERVER_REACHABLE = false;
-        SERVER_URL = null; // Clear the server URL
+        SERVER_URL = null;
 
         mainWindow?.webContents.send("main:data", {
             type: "status:server",
             data: SERVER_STATUS,
         });
 
-        return true; // Indicate success
+        return true;
     } catch (error) {
         log.error("Failed to stop server:", error);
-        return false; // Indicate failure
+        return false;
     }
 };
+
 
 const resetAppHandler = async () => {
     try {
@@ -570,29 +795,42 @@ if (!gotTheLock) {
         }
     });
 
-    app.setAboutPanelOptions({
-        applicationName: "Open WebUI",
-        iconPath: icon,
-        applicationVersion: app.getVersion(),
-        version: app.getVersion(),
-        website: "https://openwebui.com",
-        copyright: `© ${new Date().getFullYear()} Open WebUI (Timothy Jaeryang Baek)`,
-    });
-
+    
     // This method will be called when Electron has finished
     // initialization and is ready to create browser windows.
     // Some APIs can only be used after this event occurs.
     app.whenReady().then(async () => {
-       /* setTimeout(() => {
-            console.log('⏱️ Debug-Timeout → handleHotkey() wird aufgerufen…');
-            handleHotkey();
-        }, 5000); */
+    
         console.log('[boot] app.whenReady entered')
         CONFIG = await getConfig(); // Load initial config
         FIRST_RUN = CONFIG?.firstRun !== false;           
         await setConfig({ ...CONFIG, firstRun: false }); 
 
         log.info("Initial Config:", CONFIG);
+
+        // === OFFLINE BACKEND STARTEN UND UI LADEN ===
+        let targetUrl: string;
+        try {
+            targetUrl = await bootBackendReturnUrl();
+            SERVER_URL = targetUrl;
+            SERVER_STATUS = "started";
+            SERVER_REACHABLE = true;
+        } catch (e) {
+            console.error("Backend start failed:", e);
+            SERVER_STATUS = "failed";
+            // Wenn du stattdessen ein Fehlerfenster zeigen willst, könntest du hier createWindow(true) rufen.
+            return app.quit();
+        }
+
+        // Fenster erzeugen und auf Backend-URL navigieren
+        createWindow(false);
+        await mainWindow!.loadURL(targetUrl);
+        if (mainWindow!.isMinimized()) mainWindow!.restore();
+        mainWindow!.show();
+        mainWindow!.focus();
+        updateTrayMenu(`Open WebUI: ${SERVER_URL}`, null);
+        // === ENDE OFFLINE-START ===
+
 
      session.defaultSession.webRequest.onBeforeRequest(
            { urls: ['*://*/*'] }, // breit fassen, wir filtern selbst
@@ -828,30 +1066,6 @@ if (!gotTheLock) {
             log.info("[ipc] renderer:data", payload);
             return { ok: true }; // no-op Antwort
         });
-
-        (async () => {
-            if (isPackageInstalled("open-webui")) {
-                if (CONFIG?.autoUpdate ?? true) {
-                    try {
-                        log.info("Checking for updates...");
-                        updateTrayMenu("Open WebUI: Checking for updates...", null);
-                        await installPackage("open-webui");
-                    } catch (error) {
-                        log.error("Failed to update package:", error);
-                    }
-                }
-
-                // ❌ Entfernen:
-                // createWindow(false);
-
-                // ✅ Nur das:
-                await startServerHandler();
-            } else {
-                createWindow();
-            }
-        })();
-
-
 
         app.on("activate", function () {
             // On macOS it's common to re-create a window in the app when the

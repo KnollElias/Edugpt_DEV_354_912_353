@@ -10,10 +10,20 @@ files:
     - "!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}"
     - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
     - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
+
+extraResources:
+  - from: "build/python"
+    to: "python"
+  - from: "build/wheelhouse"
+    to: "wheelhouse"
+
 asarUnpack:
     - resources/**
 win:
     executableName: open-webui
+target:
+    - nsis        # Installer (Setup.exe)
+    - portable 
 nsis:
     artifactName: ${name}-${version}-setup.${ext}
     shortcutName: ${productName}
