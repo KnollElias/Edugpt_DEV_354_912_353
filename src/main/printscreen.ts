@@ -1,10 +1,24 @@
+<<<<<<< HEAD
 ﻿import { app, clipboard, type NativeImage } from 'electron'
+=======
+﻿import { app, clipboard, type NativeImage, type BrowserWindow } from 'electron'
+>>>>>>> svelte-wrapper
 import * as path from 'path'
 import * as fs from 'fs'
 import { exec } from 'child_process'
 import crypto from 'crypto'
 
 const SAVE_DIR = path.join(app.getPath('pictures'), 'openweb_images')
+<<<<<<< HEAD
+=======
+type Mod =
+    | 'shift' | 'control' | 'alt' | 'meta'
+    | 'command' | 'cmd' | 'ctrl'
+    | 'left' | 'right'
+    | 'capslock' | 'numlock'
+    | 'iskeypad' | 'isautorepeat'
+    | 'leftbuttondown' | 'middlebuttondown' | 'rightbuttondown';
+>>>>>>> svelte-wrapper
 
 export function ensureSaveDir() {
     if (!fs.existsSync(SAVE_DIR)) {
@@ -149,7 +163,88 @@ export async function handleHotkey() {
         const img = await waitForNewClipboardImage(baselineHash, 30000, 250)
         const file = saveImage(img)
         console.log('✅ Screenshot gespeichert:', file)
+<<<<<<< HEAD
     } catch (err) {
         console.warn('⚠️ Kein neues Snip gefunden:', (err as Error)?.message)
     }
 }
+=======
+        bringToFrontAndPaste(img)
+        
+
+    } catch (err) {
+        console.warn('⚠️ Kein neues Snip gefunden:', (err as Error)?.message)
+    }
+}
+
+let _getMainWindow: (() => BrowserWindow | null) | null = null
+export function registerMainWindowGetter(fn: () => BrowserWindow | null) {
+    _getMainWindow = fn
+}
+function bringWindowToFront(win: BrowserWindow) {
+    setTimeout(() => {
+        try {
+            if (win.isMinimized()) win.restore();
+            if (!win.isMaximized()) win.maximize();   
+
+            win.setAlwaysOnTop(true, 'screen-saver');
+            try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch { }
+            try { (win as any).moveTop?.(); } catch { }
+
+            win.show();
+            win.focus();
+            try { (app as any).focus?.({ steal: true }); } catch { }
+
+            setTimeout(() => { try { win.blur(); } catch { } try { win.focus(); } catch { } }, 50);
+
+            setTimeout(() => {
+                try { win.setAlwaysOnTop(false); } catch { }
+                try { win.setVisibleOnAllWorkspaces(false); } catch { }
+            }, 800);
+        } catch (e) {
+            console.warn('[focus] bringWindowToFront failed:', e);
+        }
+    }, 120);
+}
+
+function bringToFrontAndPaste(img: NativeImage) {
+    try {
+        // Bild in die Zwischenablage legen
+        clipboard.writeImage(img)
+
+        const win = _getMainWindow ? _getMainWindow() : null
+        if (!win) return
+        bringWindowToFront(win);
+
+        
+        win.webContents.executeJavaScript(`
+      (function(){
+        const input = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
+        if (input) { input.focus(); }
+      })();
+    `).catch(() => { });
+
+       
+
+        // Chat-Input fokussieren (best-effort)
+        win.webContents.executeJavaScript(`
+      (function(){
+        const input = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
+        if (input) { input.focus(); }
+      })();
+    `).catch(() => { })
+
+        const isMac = process.platform === 'darwin'
+        const modifiers: Mod[] = [isMac ? 'meta' : 'control'] 
+        // Strg/Cmd+V simulieren
+        setTimeout(() => {
+            win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'v', modifiers })
+            win.webContents.sendInputEvent({ type: 'char', keyCode: 'v', modifiers })
+            win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'v', modifiers })
+        },80)
+
+    } catch (e) {
+        console.warn('[paste] failed:', e)
+    }
+}
+>>>>>>> svelte-wrapper

@@ -101,4 +101,23 @@ resources/python.tar.gz
 .webui_secret_key
 _old
 
+<<<<<<< HEAD
 dist
+=======
+dist
+bun.lock
+src/main/.index.ts.swp
+
+# --- Offline Runtime/Assets für den Installer ---
+build/python/
+build/wheelhouse/
+build/python*.zip
+build/python*.tar.gz
+
+# (falls du versehentlich doch mal welche ins Repo kopierst)
+python/
+wheelhouse/
+
+# IDE
+.vscode/
+>>>>>>> svelte-wrapper

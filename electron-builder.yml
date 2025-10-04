@@ -10,10 +10,26 @@ files:
     - "!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}"
     - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
     - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
+<<<<<<< HEAD
+=======
+
+extraResources:
+  - from: "build/python"
+    to: "python"
+  - from: "build/wheelhouse"
+    to: "wheelhouse"
+
+>>>>>>> svelte-wrapper
 asarUnpack:
     - resources/**
 win:
     executableName: open-webui
+<<<<<<< HEAD
+=======
+target:
+    - nsis        # Installer (Setup.exe)
+    - portable 
+>>>>>>> svelte-wrapper
 nsis:
     artifactName: ${name}-${version}-setup.${ext}
     shortcutName: ${productName}
