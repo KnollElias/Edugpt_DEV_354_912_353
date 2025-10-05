@@ -1,16 +1,10 @@
-<<<<<<< HEAD
-﻿import { app, clipboard, type NativeImage } from 'electron'
-=======
 ﻿import { app, clipboard, type NativeImage, type BrowserWindow } from 'electron'
->>>>>>> svelte-wrapper
 import * as path from 'path'
 import * as fs from 'fs'
 import { exec } from 'child_process'
 import crypto from 'crypto'
 
 const SAVE_DIR = path.join(app.getPath('pictures'), 'openweb_images')
-<<<<<<< HEAD
-=======
 type Mod =
     | 'shift' | 'control' | 'alt' | 'meta'
     | 'command' | 'cmd' | 'ctrl'
@@ -18,7 +12,6 @@ type Mod =
     | 'capslock' | 'numlock'
     | 'iskeypad' | 'isautorepeat'
     | 'leftbuttondown' | 'middlebuttondown' | 'rightbuttondown';
->>>>>>> svelte-wrapper
 
 export function ensureSaveDir() {
     if (!fs.existsSync(SAVE_DIR)) {
@@ -163,12 +156,6 @@ export async function handleHotkey() {
         const img = await waitForNewClipboardImage(baselineHash, 30000, 250)
         const file = saveImage(img)
         console.log('✅ Screenshot gespeichert:', file)
-<<<<<<< HEAD
-    } catch (err) {
-        console.warn('⚠️ Kein neues Snip gefunden:', (err as Error)?.message)
-    }
-}
-=======
         bringToFrontAndPaste(img)
         
 
@@ -247,4 +234,3 @@ function bringToFrontAndPaste(img: NativeImage) {
         console.warn('[paste] failed:', e)
     }
 }
->>>>>>> svelte-wrapper

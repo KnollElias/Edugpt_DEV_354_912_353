@@ -5,10 +5,6 @@
     "main": "./out/main/index.js",
     "author": "Timothy Jaeryang Baek (Open WebUI)",
     "homepage": "https://openwebui.com",
-<<<<<<< HEAD
-=======
-
->>>>>>> svelte-wrapper
     "scripts": {
         "format": "prettier --plugin prettier-plugin-svelte --write .",
         "lint": "eslint --cache .",
@@ -20,18 +16,11 @@
         "build": "npm run typecheck && electron-vite build",
         "postinstall": "electron-builder install-app-deps",
         "build:unpack": "npm run build && electron-builder --dir",
-<<<<<<< HEAD
-        "build:win": "npm run build && electron-builder --win",
-        "build:mac": "npm run build && electron-builder --mac",
-        "build:linux": "npm run build && electron-builder --linux"
-    },
-=======
         "build:win": "npm run build && electron-builder --win --publish=never",
         "build:mac": "npm run build && electron-builder --mac",
         "build:linux": "npm run build && electron-builder --linux"
     },
 
->>>>>>> svelte-wrapper
     "dependencies": {
         "@electron-toolkit/preload": "^3.0.2",
         "@electron-toolkit/utils": "^4.0.0",
@@ -47,10 +36,6 @@
         "tar": "^7.4.3",
         "tippy.js": "^6.3.7"
     },
-<<<<<<< HEAD
-=======
-
->>>>>>> svelte-wrapper
     "devDependencies": {
         "@electron-toolkit/eslint-config-prettier": "^3.0.0",
         "@electron-toolkit/eslint-config-ts": "^3.0.0",
@@ -69,8 +54,6 @@
         "svelte-check": "^4.3.0",
         "typescript": "^5.8.3",
         "vite": "^7.0.5"
-<<<<<<< HEAD
-=======
     },
 
     "build": {
@@ -123,6 +106,5 @@
 
         "mac": { "icon": "resources/icon.png" },
         "linux": { "icon": "resources/icon.png" }
->>>>>>> svelte-wrapper
     }
 }

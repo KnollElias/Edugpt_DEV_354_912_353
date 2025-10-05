@@ -1,47 +1,6 @@
 // @ts-nocheck
 
 import {
-<<<<<<< HEAD
-    app,
-    shell,
-    session,
-    clipboard,
-    nativeImage,
-    desktopCapturer,
-    BrowserWindow,
-    globalShortcut,
-    Notification,
-    Menu,
-    ipcMain,
-    Tray,
-} from "electron";
-import path, { join } from "path";
-import { electronApp, optimizer, is } from "@electron-toolkit/utils";
-import {
-    openSnippingTool,
-    waitForNewClipboardImage,
-    getClipboardImageHash,
-    saveImage,
-    handleHotkey
-} from './printscreen'
-
-import {
-    getLogFilePath,
-    checkUrlAndOpen,
-    getConfig,
-    getServerLog,
-    installPackage,
-    installPython,
-    isPackageInstalled,
-    isPythonInstalled,
-    isUvInstalled,
-    openUrl,
-    resetApp,
-    setConfig,
-    startServer,
-    stopAllServers,
-    uninstallPython,
-=======
     app, shell, session, clipboard, nativeImage, desktopCapturer,
     BrowserWindow, globalShortcut, Notification, Menu, ipcMain, Tray
 } from "electron";
@@ -64,24 +23,11 @@ import {
     installPackage, installPython, isPackageInstalled, isPythonInstalled,
     isUvInstalled, openUrl, resetApp, setConfig, startServer,
     stopAllServers, uninstallPython,
->>>>>>> svelte-wrapper
 } from "./utils";
 
 import log from "electron-log";
 log.transports.file.resolvePathFn = () => getLogFilePath("main");
 
-<<<<<<< HEAD
-import icon from "../../resources/icon.png?asset";
-import trayIconImage from "../../resources/assets/tray.png?asset";
-
-console.log('[boot] main starting')
-const HOTKEY_CANDIDATES = [
-    'Control+Alt+S',   // sehr zuverlässig unter Windows
-    'Control+Shift+S', // Backup
-    'Alt+F10',         // F-Taste, aber häufig frei
-    'Control+Alt+F9',  // dein alter Wunsch
-    'F9'               // falls Fn-Lock aktiv ist
-=======
 import appIconPng from "../../resources/icon.png?asset";
 import appIconIco from "../../resources/assets/icon.ico?asset";
 import trayIconImage from "../../resources/assets/tray.png?asset";
@@ -317,13 +263,10 @@ console.log('[boot] main starting')
 const HOTKEY_CANDIDATES = [
     'Shift+Super+E',   // Management Wunsch
     'Alt+F10',         // F-Taste, aber häufig frei
->>>>>>> svelte-wrapper
 ];
 
 let ACTIVE_HOTKEY: string | null = null
 
-<<<<<<< HEAD
-=======
 function mapToServer(urlStr: string, serverUrl: string | null): string | null {
     if (!serverUrl) return null;
     try {
@@ -344,7 +287,6 @@ function mapToServer(urlStr: string, serverUrl: string | null): string | null {
         return null;
     }
 }
->>>>>>> svelte-wrapper
 function registerHotkeysRobust() {
     // Vorher alles wegräumen
     globalShortcut.unregisterAll();
@@ -380,9 +322,6 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuiting = false; // Flag to track if the app is quitting
 
-<<<<<<< HEAD
-let CONFIG: object | null = null;
-=======
 type AppConfig = {
     serveOnLocalNetwork?: boolean;
     port?: number | null;
@@ -392,16 +331,11 @@ type AppConfig = {
 };
 
 let CONFIG: AppConfig | null = null;
->>>>>>> svelte-wrapper
 let SERVER_URL: string | null = null;
 let SERVER_STATUS: string | null = null;
 let SERVER_REACHABLE = false;
 let SERVER_PID: number | null = null;
-<<<<<<< HEAD
-
-=======
 let FIRST_RUN = false;
->>>>>>> svelte-wrapper
 function createWindow(show = true): void {
     // Create the browser window.
     mainWindow = new BrowserWindow({
@@ -409,11 +343,7 @@ function createWindow(show = true): void {
         height: 500,
         minWidth: 400,
         minHeight: 400,
-<<<<<<< HEAD
-        icon: path.join(__dirname, "assets/icon.png"),
-=======
         icon: appIcon,
->>>>>>> svelte-wrapper
         show: false,
         titleBarStyle: process.platform === "win32" ? "default" : "hidden",
         trafficLightPosition: { x: 16, y: 16 },
@@ -423,16 +353,6 @@ function createWindow(show = true): void {
                   frame: true,
               }
             : {}),
-<<<<<<< HEAD
-        ...(process.platform === "linux" ? { icon } : {}),
-        ...(process.platform !== "darwin" ? { titleBarOverlay: true } : {}),
-        webPreferences: {
-            preload: join(__dirname, "../preload/index.js"),
-            sandbox: false,
-        },
-    });
-    mainWindow.setIcon(icon);
-=======
         ...(process.platform === "linux" ? { icon: appIcon } : {}),
         ...(process.platform !== "darwin" ? { titleBarOverlay: true } : {}),
         webPreferences: {
@@ -512,7 +432,6 @@ function createWindow(show = true): void {
             console.log('[web] did-redirect-navigation ->', url);
     });
   
->>>>>>> svelte-wrapper
     // Enables navigator.mediaDevices.getUserMedia API. See https://www.electronjs.org/docs/latest/api/desktop-capturer
     session.defaultSession.setDisplayMediaRequestHandler(
         (request, callback) => {
@@ -527,33 +446,6 @@ function createWindow(show = true): void {
     );
 
     if (!app.isPackaged) {
-<<<<<<< HEAD
-        mainWindow.webContents.openDevTools();
-    }
-
-    if (show) {
-        mainWindow.on("ready-to-show", () => {
-            mainWindow?.show();
-        });
-    }
-
-    mainWindow.webContents.setWindowOpenHandler((details) => {
-        openUrl(details.url);
-        return { action: "deny" };
-    });
-
-    globalShortcut.register("Alt+CommandOrControl+O", () => {
-        if (SERVER_URL) {
-            openUrl(SERVER_URL);
-        } else {
-            mainWindow?.show();
-
-            if (mainWindow?.isMinimized()) mainWindow?.restore();
-            mainWindow?.focus();
-        }
-    });
-
-=======
         //mainWindow.webContents.openDevTools();
     }
 
@@ -617,7 +509,6 @@ function createWindow(show = true): void {
 
 
 
->>>>>>> svelte-wrapper
     const defaultMenu = Menu.getApplicationMenu();
     let menuTemplate = defaultMenu ? defaultMenu.items.map((item) => item) : [];
     menuTemplate.push({
@@ -669,17 +560,6 @@ function createWindow(show = true): void {
     tray.setToolTip("Open WebUI");
     tray.setContextMenu(trayMenu);
 
-<<<<<<< HEAD
-    // HMR for renderer base on electron-vite cli.
-    // Load the remote URL for development or the local html file for production.
-    if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-        mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-    } else {
-        mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
-    }
-=======
-
->>>>>>> svelte-wrapper
 
     // Handle the close event
     mainWindow.on("close", (event) => {
@@ -772,97 +652,16 @@ const uninstallHandler = async () => {
 const startServerHandler = async () => {
     await stopServerHandler();
     SERVER_STATUS = "starting";
-<<<<<<< HEAD
-    mainWindow?.webContents.send("main:data", {
-        type: "status:server",
-        data: SERVER_STATUS,
-    });
-=======
     mainWindow?.webContents.send("main:data", { type: "status:server", data: SERVER_STATUS });
->>>>>>> svelte-wrapper
 
     try {
         CONFIG = await getConfig();
 
-<<<<<<< HEAD
-=======
-
->>>>>>> svelte-wrapper
         ({ url: SERVER_URL, pid: SERVER_PID } = await startServer(
             CONFIG?.serveOnLocalNetwork ?? false,
             CONFIG?.port ?? null
         ));
 
-<<<<<<< HEAD
-        updateTrayMenu("Open WebUI: Starting...", null);
-
-        log.info("Server started successfully:", SERVER_URL, SERVER_PID);
-        SERVER_STATUS = "started";
-
-        mainWindow?.webContents.send("main:data", {
-            type: "status:server",
-            data: SERVER_STATUS,
-        });
-
-        // // Load the server URL in the main window
-        // if (SERVER_URL.startsWith("http://0.0.0.0")) {
-        //     SERVER_URL = SERVER_URL.replace(
-        //         "http://0.0.0.0",
-        //         "http://localhost"
-        //     );
-        // }
-        // mainWindow.loadURL(SERVER_URL);
-
-        const urlObj = new URL(SERVER_URL);
-        const port = urlObj.port || "8080"; // Fallback to port 8080 if not provided
-
-        checkUrlAndOpen(SERVER_URL, async () => {
-            SERVER_REACHABLE = true;
-
-            // Show system notification
-            const notification = new Notification({
-                title: "Open WebUI",
-                body: "Open WebUI is now available and opened in your browser",
-            });
-            notification.show();
-
-            updateTrayMenu(`Open WebUI: ${SERVER_URL}`, SERVER_URL); // Update tray menu with running status
-            mainWindow?.webContents.send("main:data", {
-                type: "server",
-            });
-        });
-
-        return true; // Indicate success
-    } catch (error) {
-        log.error("Failed to start server:", error);
-        SERVER_STATUS = "failed";
-        mainWindow?.webContents.send("main:data", {
-            type: "status:server",
-            data: SERVER_STATUS,
-        });
-
-        mainWindow?.webContents.send(
-            "main:log",
-            `Failed to start server: ${error}`
-        );
-        updateTrayMenu("Open WebUI: Failed to Start", null); // Update tray menu with failure status
-
-        return false; // Indicate failure
-    }
-};
-
-const stopServerHandler = async () => {
-    try {
-        await stopAllServers();
-
-        if (SERVER_STATUS) {
-            // Only when the server was started
-            SERVER_STATUS = "stopped";
-            updateTrayMenu("Open WebUI: Stopped", null); // Update tray menu with stopped status
-        }
-        SERVER_REACHABLE = false;
-        SERVER_URL = null; // Clear the server URL
-=======
         
         if (SERVER_URL?.includes('127.0.0.1')) {
             SERVER_URL = SERVER_URL.replace('127.0.0.1', 'localhost');
@@ -939,22 +738,12 @@ const stopServerHandler = async () => {
         }
         SERVER_REACHABLE = false;
         SERVER_URL = null;
->>>>>>> svelte-wrapper
 
         mainWindow?.webContents.send("main:data", {
             type: "status:server",
             data: SERVER_STATUS,
         });
 
-<<<<<<< HEAD
-        return true; // Indicate success
-    } catch (error) {
-        log.error("Failed to stop server:", error);
-        return false; // Indicate failure
-    }
-};
-
-=======
         return true;
     } catch (error) {
         log.error("Failed to stop server:", error);
@@ -963,7 +752,6 @@ const stopServerHandler = async () => {
 };
 
 
->>>>>>> svelte-wrapper
 const resetAppHandler = async () => {
     try {
         await stopServerHandler(); // Stop the server if running
@@ -1005,33 +793,11 @@ if (!gotTheLock) {
         }
     });
 
-<<<<<<< HEAD
-    app.setAboutPanelOptions({
-        applicationName: "Open WebUI",
-        iconPath: icon,
-        applicationVersion: app.getVersion(),
-        version: app.getVersion(),
-        website: "https://openwebui.com",
-        copyright: `© ${new Date().getFullYear()} Open WebUI (Timothy Jaeryang Baek)`,
-    });
-
-=======
     
->>>>>>> svelte-wrapper
     // This method will be called when Electron has finished
     // initialization and is ready to create browser windows.
     // Some APIs can only be used after this event occurs.
     app.whenReady().then(async () => {
-<<<<<<< HEAD
-       /* setTimeout(() => {
-            console.log('⏱️ Debug-Timeout → handleHotkey() wird aufgerufen…');
-            handleHotkey();
-        }, 5000); */
-        console.log('[boot] app.whenReady entered')
-        CONFIG = await getConfig(); // Load initial config
-        log.info("Initial Config:", CONFIG);
-
-=======
     
         console.log('[boot] app.whenReady entered')
         CONFIG = await getConfig(); // Load initial config
@@ -1099,7 +865,6 @@ if (!gotTheLock) {
         
         
        
->>>>>>> svelte-wrapper
         // Set app user model id for windows
         electronApp.setAppUserModelId("com.openwebui.desktop");
 
@@ -1295,36 +1060,10 @@ if (!gotTheLock) {
             })
         }
 
-<<<<<<< HEAD
-
-
-        (async () => {
-            if (isPackageInstalled("open-webui")) {
-                if (CONFIG?.autoUpdate ?? true) {
-                    try {
-                        log.info("Checking for updates...");
-                        updateTrayMenu(
-                            "Open WebUI: Checking for updates...",
-                            null
-                        );
-                        await installPackage("open-webui");
-                    } catch (error) {
-                        log.error("Failed to update package:", error);
-                    }
-                }
-
-                startServerHandler();
-                createWindow(false);
-            } else {
-                createWindow();
-            }
-        })();
-=======
         ipcMain.handle("renderer:data", async (_event, payload) => {
             log.info("[ipc] renderer:data", payload);
             return { ok: true }; // no-op Antwort
         });
->>>>>>> svelte-wrapper
 
         app.on("activate", function () {
             // On macOS it's common to re-create a window in the app when the
